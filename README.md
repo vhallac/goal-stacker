@@ -22,10 +22,38 @@ All requirements live under [`design/requirements/`](design/requirements/):
 Future slices are selected from the main requirements as experiments reveal
 what is needed — they are not pulled forward merely for completeness.
 
+## Decision records
+
+Implementation decisions live under [`design/decisions/`](design/decisions/),
+indexed in its [`README.md`](design/decisions/README.md). Records are `proposed`
+when written during implementation and flipped to `accepted` at PR merge.
+
+## Implementation
+
+The durable goal store (MVP Slice 1, issue #4) lives in `src/store/`:
+
+- **Location:** `src/store/store.ts` (store behavior), `src/store/types.ts`
+  (record types), `src/store/index.ts` (public exports: `GoalStore`,
+  `StoreError`, `GOALS_LOG_FILE`). TypeScript — pi extension runtime
+  (decision: language assumption approved by the operator).
+- **Loading:** `GoalStore.open(sessionDir)` reads the goal log from the given
+  session directory and replays it to the last persisted state. An empty or
+  absent log initializes an empty tree (no root). Corruption fails loud —
+  no silent repair.
+- **JSON log path convention:** `<session-dir>/goals.jsonl` — append-only, one
+  JSON event per line (`add`, `update`, `set_status`). See decision 001.
+- **Status model:** `pending/active/expanded/done/dropped/failed/blocked` with
+  legal transitions enforced at write time. See decision 003.
+- **Contract immutability:** `statement`, `done_when`, `contributes` are
+  immutable once written (issue #4 ext 2.a).
+- **Tests:** `npx vitest run` (round-trip persistence per MVP §7.5, rejection,
+  corruption diagnostics); type gate `npx tsc --noEmit`.
+
 ## Status
 
-Design phase. Requirements for the MVP (Slice 1) and Slice 2 are defined;
-implementation has not started.
+Requirements for the MVP (Slice 1) and Slice 2 are defined. The MVP goal store
+(`src/store/`) is implemented; the rendered invocation view and tree-control
+operations are not yet started.
 
 ---
 🤖 LLM authored
