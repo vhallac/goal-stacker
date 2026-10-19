@@ -1,0 +1,38 @@
+[
+  {
+    "file": "src/store/store.ts",
+    "name": "GoalStore",
+    "kind": "ClassDeclaration",
+    "sig": "export class GoalStore"
+  },
+  {
+    "file": "src/store/store.ts",
+    "name": "StoreError",
+    "kind": "ClassDeclaration",
+    "sig": "export class StoreError extends Error"
+  },
+  {
+    "file": "src/store/types.ts",
+    "name": "GoalOrigin",
+    "kind": "TypeAliasDeclaration",
+    "sig": "export type GoalOrigin = \"prompt\" | \"expansion\" | \"explicit_add\";"
+  },
+  {
+    "file": "src/store/types.ts",
+    "name": "GoalRecord",
+    "kind": "InterfaceDeclaration",
+    "sig": "export interface GoalRecord { /** Stable, runtime-assigned identifier; never reused or renumbered. */ id: string; /** Parent goal ID; absent for the root. */ parent?: string; /** Concise description of the work. The root preserves the user's prompt verbatim. */ statement: string; /** Optional observable completion conditions. */ done_when?: string; /** For children: what this goal contributes to its parent. */ contributes?: string; /** Where the goal came from. */ origin: GoalOrigin; status: GoalStatus; /** Compact report recorded when the attempt ends. */ outcome?: string; }"
+  },
+  {
+    "file": "src/store/types.ts",
+    "name": "GoalStatus",
+    "kind": "TypeAliasDeclaration",
+    "sig": "export type GoalStatus = | \"pending\" | \"active\" | \"expanded\" | \"done\" | \"dropped\" | \"failed\" | \"blocked\";"
+  },
+  {
+    "file": "src/store/types.ts",
+    "name": "NewGoal",
+    "kind": "InterfaceDeclaration",
+    "sig": "export interface NewGoal { parent?: string; statement: string; done_when?: string; contributes?: string; origin: GoalOrigin; status?: GoalStatus; outcome?: string; }"
+  }
+]

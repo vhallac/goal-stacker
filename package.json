@@ -5,10 +5,15 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "contracts:generate": "tsx scripts/contracts.ts generate",
+    "contracts:check": "tsx scripts/contracts.ts check",
+    "contracts:log:check": "tsx scripts/contracts.ts log check",
+    "verify": "npm run typecheck && npm test && npm run contracts:check && npm run contracts:log:check"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }

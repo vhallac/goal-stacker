@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GoalStore, StoreError } from "../../src/store/index.js";
+import { GoalStore, StoreError } from "../../src/store/store.js";
 
 function sessionDir(): string {
   return mkdtempSync(join(tmpdir(), "goal-store-test-"));

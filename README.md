@@ -32,10 +32,11 @@ when written during implementation and flipped to `accepted` at PR merge.
 
 The durable goal store (MVP Slice 1, issue #4) lives in `src/store/`:
 
-- **Location:** `src/store/store.ts` (store behavior), `src/store/types.ts`
-  (record types), `src/store/index.ts` (public exports: `GoalStore`,
-  `StoreError`, `GOALS_LOG_FILE`). TypeScript — pi extension runtime
-  (decision: language assumption approved by the operator).
+- **Location:** `src/store/store.ts` (store behavior and public exports:
+  `GoalStore`, `StoreError`, `GOALS_LOG_FILE`), `src/store/types.ts` (record
+  types). TypeScript — pi extension runtime (decision: language assumption
+  approved by the operator). There is no barrel module: consumers import from
+  these files directly.
 - **Loading:** `GoalStore.open(sessionDir)` reads the goal log from the given
   session directory and replays it to the last persisted state. An empty or
   absent log initializes an empty tree (no root). Corruption fails loud —
