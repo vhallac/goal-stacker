@@ -14,9 +14,28 @@ import type { GoalRecord, GoalStatus, NewGoal } from "./types.js";
 export const GOALS_LOG_FILE = "goals.jsonl";
 
 interface LogEvent {
-  op: "add";
-  record: GoalRecord;
+  op: "add" | "update" | "set_status";
+  record?: GoalRecord;
+  id?: string;
+  status?: GoalStatus;
+  outcome?: string;
 }
+
+/** Legal status transitions — issue #4 status model (architect decision). */
+const TRANSITIONS: Readonly<Record<GoalStatus, readonly GoalStatus[]>> = {
+  pending: ["active", "dropped"],
+  active: ["expanded", "done", "failed", "blocked"],
+  expanded: [],
+  done: [],
+  dropped: [],
+  failed: [],
+  blocked: ["active", "dropped"],
+};
+
+/** Fields protected from rewriting once a record is written (issue #4 invariant). */
+const CONTRACT_FIELDS = ["statement", "done_when", "contributes"] as const;
+
+type UpdatePatch = Partial<Pick<GoalRecord, "outcome">>;
 
 const VALID_ORIGINS: readonly string[] = ["prompt", "expansion", "explicit_add"];
 const VALID_STATUSES: readonly GoalStatus[] = [
@@ -61,13 +80,49 @@ export class GoalStore {
           `corrupt goal log at ${logPath}:${i + 1}: not valid JSON (${String(cause)})`,
         );
       }
-      if (event.op !== "add" || typeof event.record?.id !== "string") {
-        throw new StoreError(`corrupt goal log at ${logPath}:${i + 1}: unrecognized event`);
+      if (event.op === "add") {
+        if (typeof event.record?.id !== "string") {
+          throw new StoreError(`corrupt goal log at ${logPath}:${i + 1}: add event without record id`);
+        }
+      if (!VALID_ORIGINS.includes(event.record.origin) || !VALID_STATUSES.includes(event.record.status)) {
+        throw new StoreError(
+          `corrupt goal log at ${logPath}:${i + 1}: invalid origin/status in record ${event.record.id}`,
+        );
       }
-      if (store.records.has(event.record.id)) {
+      if (store.records.has(event.record.id!)) {
         throw new StoreError(`corrupt goal log at ${logPath}:${i + 1}: duplicate id ${event.record.id}`);
       }
-      store.records.set(event.record.id, event.record);
+      store.records.set(event.record.id!, event.record!);
+      } else if (event.op === "update" || event.op === "set_status") {
+        const target = event.id !== undefined ? store.records.get(event.id) : undefined;
+        if (!target) {
+          throw new StoreError(
+            `corrupt goal log at ${logPath}:${i + 1}: ${event.op} references unknown id ${event.id}`,
+          );
+        }
+        if (event.op === "update") {
+          if (typeof event.outcome !== "string") {
+            throw new StoreError(`corrupt goal log at ${logPath}:${i + 1}: update event without outcome`);
+          }
+          store.records.set(event.id!, { ...target, outcome: event.outcome });
+        } else {
+          if (!VALID_STATUSES.includes(event.status!)) {
+            throw new StoreError(
+              `corrupt goal log at ${logPath}:${i + 1}: invalid status ${event.status}`,
+            );
+          }
+          store.records.set(event.id!, { ...target, status: event.status! });
+        }
+      } else {
+        throw new StoreError(`corrupt goal log at ${logPath}:${i + 1}: unrecognized event`);
+      }
+    }
+    for (const record of store.records.values()) {
+      if (record.parent !== undefined && !store.records.has(record.parent)) {
+        throw new StoreError(
+          `corrupt goal log at ${logPath}: record ${record.id} references missing parent ${record.parent}`,
+        );
+      }
     }
     store.nextSeq = maxSeq(store.records) + 1;
     return store;
@@ -124,6 +179,56 @@ export class GoalStore {
     this.records.set(record.id, record);
     this.nextSeq++;
     return record;
+  }
+
+  /**
+   * Update a mutable field (outcome) on an existing record. Any attempt to
+   * rewrite the contract fields (statement, done_when, contributes) is
+   * rejected with a concise error; the log is unchanged on rejection.
+   */
+  update(id: string, patch: UpdatePatch): GoalRecord {
+    const record = this.records.get(id);
+    if (!record) {
+      throw new StoreError(`unknown goal id ${id}`);
+    }
+    for (const field of CONTRACT_FIELDS) {
+      if (field in patch) {
+        throw new StoreError(
+          `cannot rewrite ${field} of ${id}: contract fields are immutable once written`,
+        );
+      }
+    }
+    const next = { ...record, ...patch };
+    this.append({ op: "update", id, outcome: patch.outcome });
+    this.records.set(id, next);
+    return next;
+  }
+
+  /**
+   * Transition a record's status. Only transitions in the #4 status model are
+   * legal; anything else is rejected and leaves the log unchanged.
+   */
+  setStatus(id: string, status: GoalStatus): GoalRecord {
+    if (!VALID_STATUSES.includes(status)) {
+      throw new StoreError(`unknown status ${status}`);
+    }
+    const record = this.records.get(id);
+    if (!record) {
+      throw new StoreError(`unknown goal id ${id}`);
+    }
+    if (record.status === status) {
+      throw new StoreError(`${id}: status is already ${status}`);
+    }
+    const legal = TRANSITIONS[record.status];
+    if (!legal.includes(status)) {
+      throw new StoreError(
+        `illegal status transition ${id}: ${record.status} -> ${status} (legal: ${legal.join(", ") || "none"})`,
+      );
+    }
+    this.append({ op: "set_status", id, status });
+    const next = { ...record, status };
+    this.records.set(id, next);
+    return next;
   }
 
   root(): GoalRecord | undefined {
