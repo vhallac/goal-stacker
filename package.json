@@ -1,0 +1,16 @@
+{
+  "name": "goal-stacker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Goal-tree runtime for the pi coding agent (spike scaffold)",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
