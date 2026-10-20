@@ -92,3 +92,19 @@ rationale and remain binding:
 The skill references substrate scripts (`contracts generate` / `check` /
 `affected` / `log append` / `log check`) by name — implement or locate them
 as the project reaches the point of needing them.
+
+## Running the substrate scripts
+
+The scripts live in the emergent-contract-coding skill
+(`~/.pi/agent/git/github.com/vhallac/lopsided-skills/skills/emergent-contract-coding/scripts/`).
+They need `tree-sitter` + `tree-sitter-typescript` for TypeScript extraction;
+do not create venvs or install them system-wide — run everything through uv's
+ephemeral dependencies instead:
+
+```bash
+uv run --with tree-sitter --with tree-sitter-typescript python \
+  ~/.pi/agent/git/github.com/vhallac/lopsided-skills/skills/emergent-contract-coding/scripts/contracts-cli.py generate
+```
+
+Without the `--with` flags the CLI still works, but skips TS files and the TS
+tests are skipped, not failed.
