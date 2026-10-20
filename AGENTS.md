@@ -2,10 +2,14 @@
 
 ## Development methodology
 
-This project uses emergent contract coding; always use the
-`emergent-contract-coding` skill for development. The skill covers both the
-write loop (one specification implemented or changed, ending in one commit)
-and the structure pass that ends every work item.
+This project uses emergent contract coding. This is a pilot repository for
+the methodology: by reflex, every development activity here starts from the
+`emergent-contract-coding` skill — slicing features into issues, writing a
+design, implementing a specification, fixing a bug, or restructuring code.
+When in doubt about how to do any of these, consult the skill before acting.
+The skill covers both the write loop (one specification implemented or
+changed, ending in one commit) and the structure pass that ends every work
+item.
 
 ### Write loop
 
@@ -28,6 +32,26 @@ per candidate and record it via `contracts log append`; shape the outcome;
 run the liveness check where callers were removed; then commit with the
 full gate green. The commit gate (`npm run verify`) runs `contracts check`
 and `contracts log check` together with typecheck and the full test suite.
+
+### Slicing features or requirements into issues
+
+- Every issue must be a full behavior: from an input interface, through the
+  implemented flow, to one or more output interfaces, and back. Do not slice
+  along module, layer, or store boundaries.
+- Input interfaces may be lax or rigid. The rigid input interface is the pi
+  coding agent's event handling; lax input interfaces are the surfaces this
+  project defines itself — tool calls and extension commands. Start slicing
+  from an input interface (rigid or lax) and walk backwards from the outputs.
+  Never slice bottom-up from an internal store, module, or
+  planned-but-unproven internal interface.
+- A story anchored on an unproven internal or lax interface is not fit for
+  purpose. If a needed interface does not exist yet, define it as a tool
+  call (the one sanctioned form of interface-first slicing) or de-risk it
+  with a spike that exercises the rigid input interface first.
+- Include the de-risking spike in the initial issue set when the input
+  interface is not yet proven; do not defer it to a later phase.
+- Make dependencies between slices explicit, and keep each slice
+  independently verifiable through behavior-level acceptance tests.
 
 ### Rigid interfaces
 
@@ -52,15 +76,17 @@ or the skill's capability-wish order.
 
 ### Experiment lessons (goal-stacker experiment #1)
 
-- **Story slicing is always an interface to an interface.** Any story or
-  feature request anchored on an unproven internal / lax interface is not fit
-  for purpose on this repo. A contract has no value without evidence; design
-  tasks must start from the rigid input interface (the pi coding agent's
-  event handling) and walk backwards — never bottom-up from an internal
-  store or module.
-- **Tool calls are lax input interfaces.** We define the tool-call surface
-  ourselves, so any tool call may be defined as deemed necessary, and a
-  story may be written on its behavior. This is the one sanctioned form of
+These lessons motivated the slicing directives above; they are retained as
+rationale and remain binding:
+
+- **Story slicing is always an interface to an interface.** A contract has
+  no value without evidence; design tasks must start from the rigid input
+  interface and walk backwards — never bottom-up from an internal store or
+  module.
+- **Tool calls and extension commands are the lax input interfaces.** Their
+  surfaces are defined by this project, not fixed by the host, so a tool
+  call or extension command may be defined as deemed necessary, and a story
+  may be written on its behavior. This is the one sanctioned form of
   interface-first slicing.
 
 The skill references substrate scripts (`contracts generate` / `check` /
