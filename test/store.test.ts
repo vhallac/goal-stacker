@@ -207,12 +207,12 @@ describe("store transitions: valid operations produce transitions", () => {
   it("goal_stop_work with root done: no transitions, no stop", () => {
     const records = [rec({ id: "g-root", origin: "prompt", status: "done", statement: "root" })];
     const res = applyOperation(records, { op: "goal_stop_work", reason: "all done" }, "s");
-    expect(res).toEqual({ ok: true, transitions: [] });
+    expect(res).toEqual({ ok: true, op: "goal_stop_work", transitions: [] });
   });
 
   it("goal_stop_work with root not done: run stops, reason carried (ext 3.a)", () => {
     const res = applyOperation(root(), { op: "goal_stop_work", reason: "operator ended the session" }, "s");
-    expect(res).toEqual({ ok: true, transitions: [], stopped: "operator ended the session" });
+    expect(res).toEqual({ ok: true, op: "goal_stop_work", transitions: [], stopped: "operator ended the session" });
   });
 });
 

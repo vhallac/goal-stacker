@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type, type Static } from "typebox";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const STORE_DIR = path.join(process.cwd(), ".goal-stacker");
-const STORE_FILE = path.join(STORE_DIR, "store.jsonl");
+export function storeFileFor(cwd: string): string {
+  return path.join(cwd, ".goal-stacker", "store.jsonl");
+}
 
 /** Goal status per goal-tree-mvp.md §2.2. */
 export type GoalStatus = "pending" | "active" | "expanded" | "done" | "dropped" | "failed" | "blocked";
@@ -125,7 +127,7 @@ export type GoalOperation =
   | { op: "goal_stop_work"; reason: string };
 
 export type OperationResult =
-  | { ok: true; transitions: GoalRecord[]; stopped?: string }
+  | { ok: true; op: GoalOperation["op"]; transitions: GoalRecord[]; stopped?: string }
   | { ok: false; error: string };
 
 function childRecord(base: Omit<GoalRecord, "kind" | "ts" | "sessionId" | "id" | "origin" | "status">, ts: number, sessionId: string | undefined): GoalRecord {
@@ -159,7 +161,7 @@ export function applyOperation(records: GoalRecord[], operation: GoalOperation, 
     case "goal_end_attempt": {
       if (!hasActive) return { ok: false, error: "no active goal" };
       const status = operation.disposition === "satisfied" ? "done" : operation.disposition;
-      return { ok: true, transitions: [transition(active!, { status, outcome: operation.outcome, selected: false, disposition: operation.disposition })] };
+      return { ok: true, op: operation.op, transitions: [transition(active!, { status, outcome: operation.outcome, selected: false, disposition: operation.disposition })] };
     }
     case "goal_expand": {
       if (!hasActive) return { ok: false, error: "no active goal" };
@@ -169,7 +171,7 @@ export function applyOperation(records: GoalRecord[], operation: GoalOperation, 
         childRecord({ parent: active!.id, statement: c.statement, done_when: c.done_when, contributes: c.contributes }, ts, sessionId),
       );
       const parent = transition(active!, { status: "expanded", selected: false, outcome: operation.findings });
-      return { ok: true, transitions: [parent, ...kids] };
+      return { ok: true, op: operation.op, transitions: [parent, ...kids] };
     }
     case "goal_select": {
       if (hasActive) return { ok: false, error: `a goal is already active (${active!.id})` };
@@ -177,7 +179,7 @@ export function applyOperation(records: GoalRecord[], operation: GoalOperation, 
       if (goal === undefined) return { ok: false, error: `unknown goal id: ${operation.id}` };
       if (goal.status !== "pending") return { ok: false, error: `goal ${operation.id} is not pending (status: ${goal.status})` };
       if ((tree.children.get(goal.id) ?? []).length > 0) return { ok: false, error: `goal ${operation.id} is not a leaf` };
-      return { ok: true, transitions: [transition(goal, { status: "active", selected: true })] };
+      return { ok: true, op: operation.op, transitions: [transition(goal, { status: "active", selected: true })] };
     }
     case "goal_add_and_select": {
       if (hasActive) return { ok: false, error: `a goal is already active (${active!.id})` };
@@ -194,14 +196,14 @@ export function applyOperation(records: GoalRecord[], operation: GoalOperation, 
       child.origin = "addition";
       child.status = "active";
       child.selected = true;
-      return { ok: true, transitions: [child] };
+      return { ok: true, op: operation.op, transitions: [child] };
     }
     case "goal_drop": {
       if (hasActive) return { ok: false, error: `a goal is already active (${active!.id})` };
       const goal = tree.goals.get(operation.id);
       if (goal === undefined) return { ok: false, error: `unknown goal id: ${operation.id}` };
       if (goal.status !== "pending") return { ok: false, error: `goal ${operation.id} is not pending (status: ${goal.status})` };
-      return { ok: true, transitions: [transition(goal, { status: "dropped", outcome: operation.reason })] };
+      return { ok: true, op: operation.op, transitions: [transition(goal, { status: "dropped", outcome: operation.reason })] };
     }
     case "goal_contract_children": {
       if (hasActive) return { ok: false, error: `a goal is already active (${active!.id})` };
@@ -217,13 +219,13 @@ export function applyOperation(records: GoalRecord[], operation: GoalOperation, 
         return { ok: false, error: `children of ${parent.id} are not all done or dropped: ${unfinished.join(", ")}` };
       }
       const status = operation.verdict === "satisfied" ? "done" : "failed";
-      return { ok: true, transitions: [transition(parent, { status, outcome: operation.outcome, disposition: operation.verdict, selected: false })] };
+      return { ok: true, op: operation.op, transitions: [transition(parent, { status, outcome: operation.outcome, disposition: operation.verdict, selected: false })] };
     }
     case "goal_stop_work": {
       const rootDone = tree.rootId !== undefined && tree.goals.get(tree.rootId)?.status === "done";
-      if (rootDone) return { ok: true, transitions: [] };
+      if (rootDone) return { ok: true, op: operation.op, transitions: [] };
       // 3.a.1: run stops with the reason visible in the result.
-      return { ok: true, transitions: [], stopped: operation.reason };
+      return { ok: true, op: operation.op, transitions: [], stopped: operation.reason };
     }
   }
 }
@@ -251,17 +253,132 @@ export function ensureRoot(records: GoalRecord[], prompt: string, sessionId: str
   return rec;
 }
 
+// ── Tool layer (issue #10 tool surface; one shared validation path) ─────────
+
+function toolResult(text: string, extra?: Partial<AgentToolResult<undefined>>): AgentToolResult<undefined> {
+  return { content: [{ type: "text", text }], details: undefined, ...extra };
+}
+
+/**
+ * Shared tool path: read the store, apply the operation through the one
+ * validation entry, append the transitions only on success. Invalid calls
+ * return a concise error and append nothing — the store stays byte-identical
+ * (1.a.1, inherited from the pure transition layer).
+ */
+export function executeOperation(cwd: string, sessionId: string | undefined, operation: GoalOperation): AgentToolResult<undefined> {
+  const file = storeFileFor(cwd);
+  const res = applyOperation(readStoreRecords(file), operation, sessionId);
+  if (!res.ok) return toolResult(`error: ${res.error}`);
+  appendRecords(file, res.transitions);
+  if (operation.op === "goal_stop_work") {
+    if (res.stopped === undefined) return toolResult("work stopped: root goal is done");
+    // 3.a.1: run stops with the reason visible in the result.
+    return toolResult(`work stopped: ${res.stopped} (root goal is not done)`, { terminate: true });
+  }
+  // 2.b.1: contract verdict not satisfied — parent failed, run stops for inspection.
+  if (operation.op === "goal_contract_children" && operation.verdict !== "satisfied") {
+    return toolResult(`applied ${operation.op}: parent failed; run stops for inspection`, { terminate: true });
+  }
+  const tree = deriveTree(readStoreRecords(file));
+  const parts: string[] = [];
+  if (tree.activeGoal) parts.push(`active: ${tree.activeGoal.id} (${tree.activeGoal.status}) — ${tree.activeGoal.statement}`);
+  else if (tree.rootId !== undefined && tree.goals.get(tree.rootId)?.status === "done") parts.push("root goal is done; run complete");
+  else parts.push("no active goal");
+  const pending = [...tree.goals.values()].filter((g) => g.status === "pending").map((g) => `${g.id}: ${g.statement}`);
+  if (pending.length > 0) parts.push(`pending: ${pending.join("; ")}`);
+  return toolResult(`applied ${operation.op}. ${parts.join(" | ")}`);
+}
+
+export interface GoalToolSpec { name: string; description: string; parameters: unknown; make: (params: Record<string, unknown>) => GoalOperation; }
+
+interface GoalToolSchemas {
+  goal_end_attempt: { disposition: Disposition; outcome: string };
+  goal_expand: { children: { statement: string; done_when?: string; contributes?: string }[]; findings?: string };
+  goal_select: { id: string };
+  goal_add_and_select: { parent: string; statement: string; done_when?: string; contributes?: string };
+  goal_drop: { id: string; reason: string };
+  goal_contract_children: { parent: string; verdict: Disposition; outcome: string };
+  goal_stop_work: { reason: string };
+}
+
+const dispositionSchema = Type.Union([Type.Literal("satisfied"), Type.Literal("failed"), Type.Literal("blocked")]);
+const childSchema = Type.Object({ statement: Type.String(), done_when: Type.Optional(Type.String()), contributes: Type.Optional(Type.String()) });
+
+/**
+ * The seven goal_* tools (issue #10 tool-name table). Each has the same shape:
+ * parameters per §4, execute routed through the shared validation path.
+ */
+export function goalTools(): GoalToolSpec[] {
+  return [
+    {
+      name: "goal_end_attempt",
+      description: "End the current attempt as satisfied, failed, or blocked, recording a compact outcome.",
+      parameters: Type.Object({ disposition: dispositionSchema, outcome: Type.String() }),
+      make: (p) => ({ op: "goal_end_attempt", ...p } as GoalOperation),
+    },
+    {
+      name: "goal_expand",
+      description: "Atomically add a non-empty set of pending children under the active goal, record findings, and end the attempt. All children or none.",
+      parameters: Type.Object({ children: Type.Array(childSchema), findings: Type.Optional(Type.String()) }),
+      make: (p) => ({ op: "goal_expand", ...p } as GoalOperation),
+    },
+    {
+      name: "goal_select",
+      description: "Select a pending leaf goal as the new active goal.",
+      parameters: Type.Object({ id: Type.String() }),
+      make: (p) => ({ op: "goal_select", ...p } as GoalOperation),
+    },
+    {
+      name: "goal_add_and_select",
+      description: "Atomically add one goal under an eligible unfinished parent and select it as active.",
+      parameters: Type.Object({ parent: Type.String(), statement: Type.String(), done_when: Type.Optional(Type.String()), contributes: Type.Optional(Type.String()) }),
+      make: (p) => ({ op: "goal_add_and_select", ...p } as GoalOperation),
+    },
+    {
+      name: "goal_drop",
+      description: "Drop a pending goal that is no longer needed; the reason states why the parent remains covered.",
+      parameters: Type.Object({ id: Type.String(), reason: Type.String() }),
+      make: (p) => ({ op: "goal_drop", ...p } as GoalOperation),
+    },
+    {
+      name: "goal_contract_children",
+      description: "Evaluate completed or dropped children against the parent goal. Parent becomes done only if the verdict is satisfied; otherwise failed and the run stops.",
+      parameters: Type.Object({ parent: Type.String(), verdict: dispositionSchema, outcome: Type.String() }),
+      make: (p) => ({ op: "goal_contract_children", ...p } as GoalOperation),
+    },
+    {
+      name: "goal_stop_work",
+      description: "End the run. A run is successful only if the root goal is done; otherwise the run stops with the reason visible.",
+      parameters: Type.Object({ reason: Type.String() }),
+      make: (p) => ({ op: "goal_stop_work", ...p } as GoalOperation),
+    },
+  ];
+}
+
 export default function goalStacker(pi: ExtensionAPI) {
   const log = (line: string) => console.error(`[goal-stacker] ${line}`);
 
   pi.on("before_agent_start", async (event, ctx) => {
     const prompt = event.prompt;
     const sessionId = ctx.sessionManager.getSessionId();
+    const file = storeFileFor(ctx.cwd);
 
-    const rec = ensureRoot(readStoreRecords(STORE_FILE), prompt, sessionId, STORE_FILE);
+    const rec = ensureRoot(readStoreRecords(file), prompt, sessionId, file);
     if (rec) {
       log(`root goal created: ${rec.id} — ${rec.statement.slice(0, 80)}`);
     }
     // No injection yet — state-view rendering and injection is #13, not this slice.
   });
+
+  for (const tool of goalTools()) {
+    pi.registerTool({
+      name: tool.name,
+      label: tool.name,
+      description: tool.description,
+      parameters: tool.parameters as Parameters<typeof pi.registerTool>[0]["parameters"],
+      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+        return executeOperation(ctx.cwd, ctx.sessionManager.getSessionId(), tool.make(params as never));
+      },
+    });
+  }
 }
