@@ -10,8 +10,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "contracts:check": "uv run --with tree-sitter --with tree-sitter-typescript python3 \"$CONTRACTS_CLI\" check",
-    "contracts:log-check": "uv run --with tree-sitter --with tree-sitter-typescript python3 \"$CONTRACTS_CLI\" log check",
+    "contracts:check": "scripts/contracts-cli.sh check",
+    "contracts:log-check": "scripts/contracts-cli.sh log check",
     "verify": "npm run typecheck && npm test && npm run contracts:check && npm run contracts:log-check"
   }
 }
