@@ -29,8 +29,10 @@ from the session prompt, the seven tree-control operations
 (`goal_end_attempt`, `goal_expand`, `goal_select`, `goal_add_and_select`,
 `goal_drop`, `goal_contract_children`, `goal_stop_work`) with shared
 validation, and a scripted-trace acceptance test. Store appends are fsynced
-before the write resolves, so the tree survives crashes and power loss
-(record-level durability). Slice 2 (tool policy and
+before the write resolves, and compaction rewrites are fsynced with the
+containing directory fsynced after the atomic rename, so the tree survives
+crashes and power loss (record-level durability, including rename
+durability). Slice 2 (tool policy and
 completion evidence) is not implemented; the per-invocation state-view
 injection is a follow-up. Run `npm run verify` for the commit gate
 (typecheck + full test suite).

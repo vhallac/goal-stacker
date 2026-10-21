@@ -11,3 +11,8 @@
 - affected: src/extension.ts
 - decision: record the failure semantics as implemented (PR !15 round-3 finding R3.F3): the derive path is fail-open per R21 — `readStoreRecords` returns `[]` on any read/parse error (an unreadable or corrupt store means no tree, never a crash), `applyOperation` maps a `deriveTree` invariant violation to a concise tool error without appending, and compaction (`compactedRecords`) silently skips on an inconsistent store so the session is never blocked. The rewrite path (`rewriteStore`) is deliberately fail-loud: a failed compaction write raises, because silently swallowing a durability failure could lose completed-tree records while reporting success.
 - reason: R21 requires monitoring/projection failures never block or crash the session, but the compaction rewrite is not a monitoring path — it is the durability boundary for record loss, so it must surface its failure instead of fail-open.
+
+## 2026-10-21 | goal-tree-b1/pr15-R3F1 | directory fsync after compaction rename (R3.F1)
+- affected: src/extension.ts, README.md
+- decision: `rewriteStore` fsyncs the temp file, renames over the store, then fsyncs the containing directory before resolving — making the rename itself durable, not just the file content. README durability wording updated to state this guarantee explicitly (PR !15 round-3 finding R3.F1).
+- reason: method.md atomicity check requires fsync of the file before rename AND of the directory after; a rename without a following directory fsync may not survive power loss, so the previous durability claim overstated the guarantee.
