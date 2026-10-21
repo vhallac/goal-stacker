@@ -12,7 +12,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 import * as os from "node:os";
 import * as path from "node:path";
-import { appendRecord } from "../src/extension.js";
+import { appendRecord, compactedRecords, executeOperation, readStoreRecords, storeFileFor } from "../src/extension.js";
 import { applyOperation, deriveTree, parseRecordLine, type GoalRecord } from "../src/extension.js";
 
 // Behavior under test (goal-tree-mvp.md §2.2, §4; issue #10 ext 1.a/2.a/2.b/4.a):
@@ -286,5 +286,84 @@ describe("store record parsing (§3 generalized records)", () => {
     expect(parseRecordLine('{"kind":"other"}')).toBeUndefined();
     expect(parseRecordLine("not json")).toBeUndefined();
     expect(parseRecordLine('{"kind":"goal"}')).toBeUndefined(); // missing required fields
+  });
+});
+
+describe("R2.F1: compaction on root completion", () => {
+  let dir: string;
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("compactedRecords returns undefined while the root is not done", () => {
+    const records = root();
+    expect(compactedRecords(records)).toBeUndefined();
+  });
+
+  it("compactedRecords keeps a terminal completion record, drops the root tree's records", () => {
+    const records = [
+      rec({ id: "g-root", origin: "prompt", status: "active", selected: true, statement: "root" }),
+      rec({ id: "g-child", parent: "g-root", origin: "expansion", status: "done", statement: "child" }),
+      rec({ id: "g-root", origin: "expansion", status: "done", outcome: "all done", statement: "root" }),
+    ];
+    const compact = compactedRecords(records)!;
+    expect(compact).toHaveLength(1);
+    expect(compact[0].id).toBe("g-root");
+    expect(compact[0].status).toBe("done");
+    expect(compact[0].outcome).toBe("all done");
+    expect(compact.some((r) => r.id === "g-child")).toBe(false);
+  });
+
+  it("compactedRecords preserves another tree's records in the same file", () => {
+    const records = [
+      rec({ id: "g-root-a", origin: "prompt", status: "active", selected: true, statement: "root a" }),
+      rec({ id: "g-a-child", parent: "g-root-a", origin: "expansion", status: "pending", statement: "a child" }),
+      rec({ id: "g-root-a", origin: "expansion", status: "done", outcome: "a done", statement: "root a" }),
+      rec({ id: "g-root-b", origin: "expansion", status: "active", statement: "root b" }),
+      rec({ id: "g-b-child", parent: "g-root-b", origin: "expansion", status: "pending", statement: "b child" }),
+    ];
+    const compact = compactedRecords(records)!;
+    // Root a's tree (the derived prompt root) is compacted to its terminal record only.
+    expect(compact.some((r) => r.id === "g-a-child")).toBe(false);
+    expect(compact.filter((r) => r.id === "g-root-a")).toHaveLength(1);
+    expect(compact.find((r) => r.id === "g-root-a")!.status).toBe("done");
+    // Root b's tree records survive untouched.
+    expect(compact.some((r) => r.id === "g-root-b")).toBe(true);
+    expect(compact.some((r) => r.id === "g-b-child")).toBe(true);
+  });
+
+  it("executeOperation compacts the store file on root completion; other roots' records survive", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-stacker-compact-"));
+    const file = storeFileFor(dir, "sess-c");
+    // Two trees share one file: root A (completed below) and root B (pending).
+    appendRecord(file, rec({ id: "g-a", origin: "prompt", status: "active", selected: true, statement: "root a" }));
+    appendRecord(file, rec({ id: "g-b", origin: "expansion", status: "pending", statement: "root b" }));
+    appendRecord(file, rec({ id: "g-b-child", parent: "g-b", origin: "expansion", status: "pending", statement: "b child" }));
+
+    // Expand root a (creates its child), make the child done, contract to complete root a.
+    const r0 = executeOperation(dir, "sess-c", { op: "goal_expand", children: [{ statement: "a child" }] });
+    expect(r0.content[0].text).toContain("applied goal_expand");
+    const childId = readStoreRecords(file).find((r) => r.parent === "g-a" && r.status === "pending")!.id;
+    const r1 = executeOperation(dir, "sess-c", { op: "goal_select", id: childId });
+    expect(r1.content[0].text).toContain("applied goal_select");
+    const r2 = executeOperation(dir, "sess-c", { op: "goal_end_attempt", disposition: "satisfied", outcome: "child ok" });
+    expect(r2.content[0].text).toContain("applied goal_end_attempt");
+    const r3 = executeOperation(dir, "sess-c", { op: "goal_contract_children", parent: "g-a", verdict: "satisfied", outcome: "a done" });
+    expect(r3.content[0].text).toContain("applied goal_contract_children");
+
+    const after = readStoreRecords(file);
+    // Root a's records are gone; a terminal completion record for g-a remains.
+    expect(after.some((r) => r.parent === "g-a")).toBe(false);
+    const terminal = after.find((r) => r.id === "g-a");
+    expect(terminal).toBeDefined();
+    expect(terminal!.status).toBe("done");
+    // No superseded records of root a survive — only the one terminal record.
+    expect(after.filter((r) => r.id === "g-a")).toHaveLength(1);
+    // Root b's records are untouched.
+    // Root b's records are untouched.
+    expect(after.some((r) => r.id === "g-b")).toBe(true);
+    expect(after.some((r) => r.id === "g-b-child")).toBe(true);
+    // No temp file left behind.
+    expect(fs.existsSync(`${file}.tmp`)).toBe(false);
   });
 });

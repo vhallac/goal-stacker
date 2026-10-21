@@ -119,6 +119,63 @@ export function appendRecords(file: string, recs: GoalRecord[]): void {
   for (const rec of recs) appendRecord(file, rec);
 }
 
+/**
+ * R2.F1 (delete-on-root-completion): when the root goal is done, return the
+ * compacted record set — every record belonging to the completed root's goal
+ * tree is rewritten out except a single terminal completion record for the
+ * root itself; all other goals' records (e.g. another root sharing the file)
+ * are preserved untouched. Returns undefined when no compaction is due.
+ */
+export function compactedRecords(records: GoalRecord[]): GoalRecord[] | undefined {
+  let tree: GoalTree;
+  try {
+    tree = deriveTree(records);
+  } catch {
+    return undefined; // compaction never runs on an inconsistent store
+  }
+  if (tree.rootId === undefined) return undefined;
+  if (tree.goals.get(tree.rootId)?.status !== "done") return undefined;
+  const inTree = new Set<string>([tree.rootId]);
+  const stack = [tree.rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    for (const c of tree.children.get(id) ?? []) {
+      if (!inTree.has(c)) {
+        inTree.add(c);
+        stack.push(c);
+      }
+    }
+  }
+  const out: GoalRecord[] = [];
+  for (const rec of records) {
+    if (rec.id === tree.rootId) {
+      if (rec.status === "done") out.push(rec); // terminal completion record
+      continue;
+    }
+    if (inTree.has(rec.id)) continue;
+    out.push(rec);
+  }
+  return out;
+}
+
+/**
+ * Durable rewrite-once-on-completion (R2.F1): write the compacted set to a
+ * temp file, fsync it, then rename over the store — a crash leaves either the
+ * old or the new file, never a torn one.
+ */
+export function rewriteStore(file: string, records: GoalRecord[]): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeSync(fd, records.map((r) => JSON.stringify(r)).join("\n") + (records.length > 0 ? "\n" : ""));
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+}
+
 let counter = 0;
 function nextGoalId(ts: number): string {
   counter += 1;
@@ -289,6 +346,11 @@ export function executeOperation(cwd: string, sessionId: string | undefined, ope
   // F3: derive the result from the records we just appended (before +
   // transitions), not a racing re-read of the store file.
   const records = [...before, ...res.transitions];
+  // R2.F1: root completion compacts the store — the completed root's records
+  // are rewritten out, a terminal completion record is kept, and other goals'
+  // records in the same file are untouched.
+  const compact = compactedRecords(records);
+  if (compact !== undefined) rewriteStore(file, compact);
   if (operation.op === "goal_stop_work") {
     if (res.stopped === undefined) return toolResult("work stopped: root goal is done");
     // 3.a.1: run stops with the reason visible in the result.

@@ -115,25 +115,17 @@ describe("scripted trace over one fixed demo prompt", () => {
     expect(tree.goals.get(root.id)?.status).toBe("done"); // explicit collection made the parent done
     expect(tree.activeGoal).toBeUndefined();
 
-    // Invariants across the whole trace: root statement still verbatim;
-    // store is append-only JSONL with expand + end_attempt transitions present.
+    // Invariants across the whole trace: root statement still verbatim.
+    // R2.F1: once the root is done, the store is compacted to the terminal
+    // completion record — the run's records are rewritten out.
     const records = readStoreRecords(storeFile());
-    const rootRec = records.find((r) => r.id === root.id)!;
+    expect(records).toHaveLength(1);
+    const rootRec = records[0];
+    expect(rootRec.id).toBe(root.id);
     expect(rootRec.statement).toBe(PROMPT);
-    // expand and end_attempt transitions are recorded: two expansion children
-    // under the root, and done-with-outcome records for both children + parent.
-    expect(tree.children.get(root.id)).toHaveLength(2);
-    const dones = records.filter((r) => r.status === "done" && r.outcome !== undefined);
-    expect(dones.length).toBeGreaterThanOrEqual(3); // two children + contracted parent
-    // At most one active goal at every recorded state: replay the record set
-    // prefix by prefix and count active goals.
-    let maxActive = 0;
-    for (let i = 1; i <= records.length; i++) {
-      const active = deriveTree(records.slice(0, i)).goals;
-      let n = 0;
-      for (const g of active.values()) if (g.status === "active") n++;
-      maxActive = Math.max(maxActive, n);
-    }
-    expect(maxActive).toBe(1);
+    expect(rootRec.status).toBe("done");
+    expect(rootRec.outcome).toBe("both children done");
+    // The terminal record leaves no active goal behind.
+    expect(deriveTree(records).activeGoal).toBeUndefined();
   });
 });
