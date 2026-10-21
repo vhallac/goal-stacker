@@ -44,16 +44,20 @@ export interface GoalTree {
 
 /** §2.2 invariant: at most one goal is active. Later records for an id supersede earlier ones. */
 export function deriveTree(records: GoalRecord[]): GoalTree {
-  const goals = new Map<string, GoalRecord>();
-  let rootId: string | undefined;
-  let activeGoal: GoalRecord | undefined;
+  // Collapse to the latest record per id first (F2): rootId is derived from the
+  // collapsed map, not the raw stream, so a superseded prompt-origin record can
+  // never unset the root or let ensureRoot append a duplicate root. Among
+  // distinct prompt-origin records, the latest one wins.
+  const latest = new Map<string, GoalRecord>();
+  let latestPrompt: GoalRecord | undefined;
   for (const rec of records) {
     if (rec.kind !== "goal") continue;
-    const prev = goals.get(rec.id);
-    if (prev && prev.origin === "prompt" && rootId === prev.id) rootId = undefined;
-    goals.set(rec.id, rec);
-    if (rec.origin === "prompt" && rootId === undefined) rootId = rec.id;
+    if (rec.origin === "prompt") latestPrompt = rec;
+    latest.set(rec.id, rec);
   }
+  const goals = latest;
+  const rootId = latestPrompt?.id;
+  let activeGoal: GoalRecord | undefined;
   const children = new Map<string, string[]>();
   for (const rec of goals.values()) {
     if (rec.parent === undefined) continue;

@@ -216,6 +216,31 @@ describe("store transitions: valid operations produce transitions", () => {
   });
 });
 
+describe("deriveTree rootId derivation (review F2)", () => {
+  it("rootId survives when the root id's latest record is not prompt-origin (no duplicate root)", () => {
+    // Hand-written store: root appended, then the same id re-recorded with a
+    // non-prompt origin. The superseded prompt record still anchors the root.
+    const records = [
+      rec({ id: "g-root", origin: "prompt", status: "active", selected: true, statement: "root" }),
+      rec({ id: "g-root", origin: "expansion", status: "active", statement: "root" }),
+    ];
+    expect(deriveTree(records).rootId).toBe("g-root");
+  });
+
+  it("latest prompt-origin record wins among distinct prompt records", () => {
+    const records = [
+      rec({ id: "g-old", origin: "prompt", status: "done", statement: "old" }),
+      rec({ id: "g-new", origin: "prompt", status: "active", selected: true, statement: "new" }),
+    ];
+    expect(deriveTree(records).rootId).toBe("g-new");
+  });
+
+  it("no prompt-origin record: rootId undefined, ensureRoot may create the root", () => {
+    const records = [rec({ id: "g-x", origin: "expansion", status: "pending", statement: "x" })];
+    expect(deriveTree(records).rootId).toBeUndefined();
+  });
+});
+
 it("top-level await import", async () => { await import("vitest"); });
 describe("store record parsing (§3 generalized records)", () => {
   it("non-goal lines and malformed lines are skipped by read-side parse", () => {
