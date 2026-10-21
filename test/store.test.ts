@@ -1,4 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+// Partial node:fs mock: pass everything through, but observe fsyncSync.
+const fsyncSpy = vi.hoisted(() => vi.fn());
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const patched = { ...actual, fsyncSync: (...args: Parameters<typeof actual.fsyncSync>) => fsyncSpy(...args) };
+  return { ...patched, default: patched };
+});
+import * as os from "node:os";
+import * as path from "node:path";
+import { appendRecord } from "../src/extension.js";
 import { applyOperation, deriveTree, parseRecordLine, type GoalRecord } from "../src/extension.js";
 
 // Behavior under test (goal-tree-mvp.md §2.2, §4; issue #10 ext 1.a/2.a/2.b/4.a):
@@ -15,6 +29,30 @@ function root(): GoalRecord[] {
 const activeTransition = (records: GoalRecord[], id: string, status: GoalRecord["status"]): GoalRecord[] => [
   { ...records.find((r) => r.id === id)!, ts, status },
 ];
+
+describe("appendRecord durability (review F4)", () => {
+  // Weak inspection (per plan): the fsync call is observed at the node:fs
+  // seam — the fsync-before-resolve ordering itself is what fsyncSync on the
+  // open fd guarantees by contract.
+  let dir: string;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("appendRecord fsyncs the store fd before returning", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-stacker-fsync-"));
+    const file = path.join(dir, "sub", "store.jsonl");
+    const spy = fsyncSpy;
+    spy.mockClear();
+
+    appendRecord(file, rec({ id: "g-1", origin: "prompt", status: "active", statement: "x" }));
+
+    expect(spy).toHaveBeenCalled();
+    // The record is intact after the durable append.
+    expect(fs.readFileSync(file, "utf8").trimEnd().split("\n")).toHaveLength(1);
+  });
+});
 
 describe("store transitions: phase and target validation (ext 1.a)", () => {
   it("end_attempt with no active goal is invalid, no transitions", () => {

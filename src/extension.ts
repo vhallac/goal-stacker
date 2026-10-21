@@ -104,7 +104,15 @@ export function readStoreRecords(file: string): GoalRecord[] {
 
 export function appendRecord(file: string, rec: GoalRecord): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, JSON.stringify(rec) + "\n");
+  // Durability (review F4): open in append mode, write, then fsync before
+  // resolving so a crash or power loss cannot leave a torn/lost line.
+  const fd = fs.openSync(file, "a");
+  try {
+    fs.writeSync(fd, JSON.stringify(rec) + "\n");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export function appendRecords(file: string, recs: GoalRecord[]): void {
