@@ -20,3 +20,8 @@
 - affected: phaseBlockReason
 - decision: Corrupt goal store in the phase gate fails closed: deriveTree invariant errors become a blocking reason instead of propagating out of the rigid pi tool_call handler.
 - reason: pi's behavior on a throwing tool_call handler is unspecified; blocking every ordinary call keeps the system safe and testable.
+## 2026-10-21 | goal-tree-b4-state-view/unit-003 | leave
+- affected: src/extension.ts
+- decision: leave: renderStateView stays a pure renderer called only from stateViewInjection, and stateViewInjection stays the single injection adapter called only from the before_agent_start handler; no merge of the pair
+- reason: single call site each; no co-change evidence — the pair was considered and preserved; registry now parses TypeScript (18 interfaces) and all affected call sites are present, none removed, so no liveness check triggered
+
