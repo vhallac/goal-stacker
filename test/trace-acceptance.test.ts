@@ -145,4 +145,84 @@ describe("scripted trace over one fixed demo prompt", () => {
     }
     expect(maxActive).toBe(1);
   });
+
+  // Issue #12 acceptance gate (§2.6 extension 2.b, acceptance 3; §2.5/§4):
+  // explicit contraction drives root completion — no auto-completion, a
+  // non-satisfied verdict fails the parent and stops the run, an invalid
+  // contraction is a concise error with a byte-identical store.
+  function expandTwoChildren(root: string): [string, string] {
+    run({
+      op: "goal_expand",
+      children: [
+        { statement: "profile the hot loop", done_when: "hot loop identified" },
+        { statement: "memoize the tokenizer", done_when: "tokenizer memoized" },
+      ],
+    });
+    const tree = deriveTree(readStoreRecords(storeFile()));
+    const kids = tree.children.get(root)!;
+    return [kids[0], kids[1]];
+  }
+
+  function finishChild(id: string, outcome: string): void {
+    run({ op: "goal_select", id });
+    run({ op: "goal_end_attempt", disposition: "satisfied", outcome });
+  }
+
+  it("no auto-completion: all children done leaves the parent unfinished with no tool call", () => {
+    const root = ensureRoot([], PROMPT, "s1", storeFile())!.id;
+    const [a, b] = expandTwoChildren(root);
+    finishChild(a, "hot loop is in tokenize()");
+    finishChild(b, "tokenizer memoized");
+
+    // The assertion itself is the proof of 2.b invariant 1: after the last
+    // child completes, no further call is made — the parent must already be
+    // observed unfinished with no active goal.
+    const tree = deriveTree(readStoreRecords(storeFile()));
+    expect(tree.goals.get(root)?.status).not.toBe("done");
+    expect(tree.activeGoal).toBeUndefined();
+  });
+
+  it("non-satisfied verdict: parent failed and the run stops with the reason in the result", () => {
+    const root = ensureRoot([], PROMPT, "s1", storeFile())!.id;
+    const [a, b] = expandTwoChildren(root);
+    finishChild(a, "hot loop is in tokenize()");
+    finishChild(b, "tokenizer memoized");
+
+    const res = run({ op: "goal_contract_children", parent: root, verdict: "failed", outcome: "children reveal a deeper redesign" });
+    // 2.b.1: parent failed, run stops, reason visible in the result text.
+    expect(text(res)).toContain("parent failed");
+    expect(text(res)).toContain("run stops");
+    const tree = deriveTree(readStoreRecords(storeFile()));
+    expect(tree.goals.get(root)?.status).toBe("failed");
+    expect(tree.activeGoal).toBeUndefined();
+  });
+
+  it("satisfied verdict after children done: parent done, store compacted to the terminal record", () => {
+    const root = ensureRoot([], PROMPT, "s1", storeFile())!.id;
+    const [a, b] = expandTwoChildren(root);
+    finishChild(a, "hot loop is in tokenize()");
+    finishChild(b, "tokenizer memoized");
+
+    const res = run({ op: "goal_contract_children", parent: root, verdict: "satisfied", outcome: "both children done" });
+    expect(text(res)).toContain("applied goal_contract_children");
+    // R2.F1: root completion compacts the store to the terminal record.
+    const records = readStoreRecords(storeFile());
+    expect(records).toHaveLength(1);
+    expect(records[0].id).toBe(root);
+    expect(records[0].status).toBe("done");
+    expect(records[0].outcome).toBe("both children done");
+    expect(deriveTree(records).activeGoal).toBeUndefined();
+  });
+
+  it("contracting with a still-pending child: concise error, store byte-identical", () => {
+    const root = ensureRoot([], PROMPT, "s1", storeFile())!.id;
+    expandTwoChildren(root);
+    const [a] = deriveTree(readStoreRecords(storeFile())).children.get(root)!;
+    finishChild(a, "hot loop is in tokenize()");
+    const bytes = storeBytes();
+
+    const res = run({ op: "goal_contract_children", parent: root, verdict: "satisfied", outcome: "premature" });
+    expect(text(res)).toMatch(/^error: /);
+    expect(storeBytes()).toBe(bytes);
+  });
 });
