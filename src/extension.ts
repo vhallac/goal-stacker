@@ -274,9 +274,13 @@ function toolResult(text: string, extra?: Partial<AgentToolResult<undefined>>): 
  */
 export function executeOperation(cwd: string, sessionId: string | undefined, operation: GoalOperation): AgentToolResult<undefined> {
   const file = storeFileFor(cwd, sessionId);
-  const res = applyOperation(readStoreRecords(file), operation, sessionId);
+  const before = readStoreRecords(file);
+  const res = applyOperation(before, operation, sessionId);
   if (!res.ok) return toolResult(`error: ${res.error}`);
   appendRecords(file, res.transitions);
+  // F3: derive the result from the records we just appended (before +
+  // transitions), not a racing re-read of the store file.
+  const records = [...before, ...res.transitions];
   if (operation.op === "goal_stop_work") {
     if (res.stopped === undefined) return toolResult("work stopped: root goal is done");
     // 3.a.1: run stops with the reason visible in the result.
@@ -286,7 +290,7 @@ export function executeOperation(cwd: string, sessionId: string | undefined, ope
   if (operation.op === "goal_contract_children" && operation.verdict !== "satisfied") {
     return toolResult(`applied ${operation.op}: parent failed; run stops for inspection`, { terminate: true });
   }
-  const tree = deriveTree(readStoreRecords(file));
+  const tree = deriveTree(records);
   const parts: string[] = [];
   if (tree.activeGoal) parts.push(`active: ${tree.activeGoal.id} (${tree.activeGoal.status}) — ${tree.activeGoal.statement}`);
   else if (tree.rootId !== undefined && tree.goals.get(tree.rootId)?.status === "done") parts.push("root goal is done; run complete");

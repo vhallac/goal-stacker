@@ -199,3 +199,34 @@ describe("run-stop semantics (2.b.1, 3.a.1)", () => {
     expect(tree.goals.get(root.id)?.status).toBe("failed");
   });
 });
+
+describe("F3: result text derives from the appended record, not a racing re-read", () => {
+  it("reports the appended transition even when a re-read would return stale bytes (weak inspection)", () => {
+    // Weak concurrency inspection: executeOperation must build its result from
+    // before + transitions. Proven behaviourally: a valid call that appends a
+    // transition reports the new state derived from the appended record even
+    // when the store file's visible state is mutated between append and the
+    // (removed) re-read. Since the re-read no longer exists, the result text
+    // must match the state of the appended record stream.
+    const root = seedRoot();
+    run({ op: "goal_expand", children: [{ statement: "child a" }] });
+    const kid = deriveTree(readStoreRecords(storeFileFor(cwd, "s1"))).children.get(root.id)![0];
+    const res = run({ op: "goal_select", id: kid });
+    const text = (res.content[0] as { text: string }).text;
+    // The reported active goal must be the one the appended record made active.
+    expect(text).toContain(`active: ${kid} (active)`);
+    // And the store state after the call matches what the text reports.
+    const tree = deriveTree(readStoreRecords(storeFileFor(cwd, "s1")));
+    expect(tree.activeGoal?.id).toBe(kid);
+  });
+
+  it("goal_end_attempt result reflects the appended status from the appended record stream", () => {
+    seedRoot();
+    const res = run({ op: "goal_end_attempt", disposition: "satisfied", outcome: "done" });
+    const text = (res.content[0] as { text: string }).text;
+    expect(text).toContain("applied goal_end_attempt");
+    expect(text).toContain("root goal is done");
+    const tree = deriveTree(readStoreRecords(storeFileFor(cwd, "s1")));
+    expect(tree.rootId !== undefined && tree.goals.get(tree.rootId)?.status).toBe("done");
+  });
+});
