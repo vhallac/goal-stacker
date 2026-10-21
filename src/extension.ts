@@ -3,8 +3,11 @@ import * as path from "node:path";
 import { Type, type Static } from "typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export function storeFileFor(cwd: string): string {
-  return path.join(cwd, ".goal-stacker", "store.jsonl");
+/** Session-scoped store path (review F1): one file per session under the cwd. */
+export function storeFileFor(cwd: string, sessionId: string | undefined): string {
+  // Path-safe name: sessions are uuid-like, but never trust the id as a path component.
+  const name = (sessionId ?? "default").replace(/[^A-Za-z0-9_-]/g, "_") || "default";
+  return path.join(cwd, ".goal-stacker", `${name}.jsonl`);
 }
 
 /** Goal status per goal-tree-mvp.md §2.2. */
@@ -266,7 +269,7 @@ function toolResult(text: string, extra?: Partial<AgentToolResult<undefined>>): 
  * (1.a.1, inherited from the pure transition layer).
  */
 export function executeOperation(cwd: string, sessionId: string | undefined, operation: GoalOperation): AgentToolResult<undefined> {
-  const file = storeFileFor(cwd);
+  const file = storeFileFor(cwd, sessionId);
   const res = applyOperation(readStoreRecords(file), operation, sessionId);
   if (!res.ok) return toolResult(`error: ${res.error}`);
   appendRecords(file, res.transitions);
@@ -361,7 +364,7 @@ export default function goalStacker(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const prompt = event.prompt;
     const sessionId = ctx.sessionManager.getSessionId();
-    const file = storeFileFor(ctx.cwd);
+    const file = storeFileFor(ctx.cwd, sessionId);
 
     const rec = ensureRoot(readStoreRecords(file), prompt, sessionId, file);
     if (rec) {

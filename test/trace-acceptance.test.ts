@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { executeOperation, ensureRoot, deriveTree, readStoreRecords, type GoalOperation } from "../src/extension.js";
+import { executeOperation, storeFileFor, ensureRoot, deriveTree, readStoreRecords, type GoalOperation } from "../src/extension.js";
 
 // Scripted-trace acceptance (issue #10 acceptance condition, §7.4/§7.5 spirit
 // at unit level): one fixed demo prompt drives the whole tool surface. After
@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 function storeFile(): string {
-  return path.join(cwd, ".goal-stacker", "store.jsonl");
+  return storeFileFor(cwd, "s1");
 }
 
 function storeBytes(): string {

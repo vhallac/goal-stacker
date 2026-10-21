@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ensureRoot, readStoreRecords, deriveTree, type GoalRecord } from "../src/extension.js";
+import { ensureRoot, readStoreRecords, deriveTree, executeOperation, storeFileFor, type GoalRecord } from "../src/extension.js";
 
 // Behavior under test (goal-tree-mvp.md §2.1, issue #10 use case step 1):
 // A prompt starts a tree — the store holds one root goal record with the
@@ -80,5 +80,45 @@ describe("root-goal creation", () => {
     const roots = records.filter((r) => r.origin === "prompt");
     expect(roots).toHaveLength(1);
     expect(roots[0].statement).toBe("the real prompt");
+  });
+
+  // Regression guard (review F1): the store is session-scoped — one file per
+  // session under the same cwd, so two sessions produce two independent trees
+  // and an id from another session's tree is unknown here.
+  it("two sessions in one cwd produce two independent trees (per-session store path)", () => {
+    const fileA = storeFileFor(dir, "sess-a");
+    const fileB = storeFileFor(dir, "sess-b");
+    expect(fileA).not.toBe(fileB); // distinct paths per session
+
+    const recA = ensureRoot([], "session A prompt", "sess-a", fileA);
+    const recB = ensureRoot([], "session B prompt", "sess-b", fileB);
+    expect(recA).toBeDefined();
+    expect(recB).toBeDefined();
+
+    const recsA = readStoreRecords(fileA);
+    const recsB = readStoreRecords(fileB);
+    expect(recsA).toHaveLength(1);
+    expect(recsB).toHaveLength(1);
+    expect(recsA[0].statement).toBe("session A prompt");
+    expect(recsB[0].statement).toBe("session B prompt");
+    expect(recsB.map((r) => r.id)).not.toContain(recA!.id); // B's file holds none of A's records
+  });
+
+  it("stale id from another session's tree is rejected: unknown id, nothing appended", () => {
+    const fileA = storeFileFor(dir, "sess-a");
+    const fileB = storeFileFor(dir, "sess-b");
+    const recA = ensureRoot([], "session A prompt", "sess-a", fileA);
+    ensureRoot([], "session B prompt", "sess-b", fileB);
+    // End sess-b's own attempt so phase allows a select; then the stale id
+    // from sess-a reaches the unknown-id check (sess-b's store holds no such id).
+    const end = executeOperation(dir, "sess-b", { op: "goal_end_attempt", disposition: "satisfied", outcome: "done for test" });
+    expect(end.content[0].text).not.toContain("error:");
+    const before = fs.readFileSync(fileB, "utf8");
+
+    // sess-b tries to select sess-a's root id — it does not exist in sess-b's store.
+    const res = executeOperation(dir, "sess-b", { op: "goal_select", id: recA!.id });
+    expect(res.content[0].text).toContain("error:");
+    expect(res.content[0].text).toContain("unknown goal id");
+    expect(fs.readFileSync(fileB, "utf8")).toBe(before); // byte-identical (1.a.1)
   });
 });
