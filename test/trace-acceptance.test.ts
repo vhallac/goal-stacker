@@ -107,6 +107,9 @@ describe("scripted trace over one fixed demo prompt", () => {
 
     // Step 4: select the second child, end its attempt, collect via contract.
     run({ op: "goal_select", id: childB });
+    // R3.F2: capture the pre-compaction trace segment — root completion below
+    // triggers compaction, so snapshot the full record set now for prefix replay.
+    const preCompaction = readStoreRecords(storeFile());
     expect(activeGoal()).toBe(childB);
     run({ op: "goal_end_attempt", disposition: "satisfied", outcome: "tokenizer memoized" });
     const r9 = run({ op: "goal_contract_children", parent: root.id, verdict: "satisfied", outcome: "both children done" });
@@ -127,5 +130,19 @@ describe("scripted trace over one fixed demo prompt", () => {
     expect(rootRec.outcome).toBe("both children done");
     // The terminal record leaves no active goal behind.
     expect(deriveTree(records).activeGoal).toBeUndefined();
+
+    // R3.F2 invariant replay: over the pre-compaction segment, replay every
+    // prefix and assert at most one goal is active in each derived state
+    // (requirements §2.2). With the first expansion child done, the tail
+    // prefix has zero active goals — the maximum over all prefixes is 1.
+    expect(preCompaction.length).toBeGreaterThan(1);
+    let maxActive = 0;
+    for (let i = 1; i <= preCompaction.length; i++) {
+      const tree = deriveTree(preCompaction.slice(0, i));
+      let n = 0;
+      for (const g of tree.goals.values()) if (g.status === "active") n++;
+      maxActive = Math.max(maxActive, n);
+    }
+    expect(maxActive).toBe(1);
   });
 });
