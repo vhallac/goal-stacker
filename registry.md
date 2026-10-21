@@ -33,12 +33,20 @@
 - call sites:
   - src/extension.ts:applyOperation
 
+### extension:compactedRecords
+
+- direction: internal
+- authority: lax
+- call sites:
+  - src/extension.ts:executeOperation
+
 ### extension:deriveTree
 
 - direction: internal
 - authority: lax
 - call sites:
   - src/extension.ts:applyOperation
+  - src/extension.ts:compactedRecords
   - src/extension.ts:ensureRoot
   - src/extension.ts:executeOperation
 
@@ -79,6 +87,13 @@
   - src/extension.ts:executeOperation
   - src/extension.ts:goalStacker
 
+### extension:rewriteStore
+
+- direction: internal
+- authority: lax
+- call sites:
+  - src/extension.ts:executeOperation
+
 ### extension:storeFileFor
 
 - direction: internal
@@ -104,6 +119,8 @@
   - src/extension.ts:ensureRoot
   - src/extension.ts:executeOperation
   - src/extension.ts:readStoreRecords
+  - src/extension.ts:rewriteStore
+  - src/extension.ts:storeFileFor
 
 ### Date.now
 
@@ -120,6 +137,7 @@
 
 - call sites:
   - src/extension.ts:appendRecord
+  - src/extension.ts:rewriteStore
 
 ### Type.Array
 
@@ -175,35 +193,60 @@
   - src/extension.ts:goalStacker
   - src/extension.ts:goalStacker.execute
 
-### fs.appendFileSync
+### fs.closeSync
 
 - call sites:
   - src/extension.ts:appendRecord
+  - src/extension.ts:rewriteStore
+
+### fs.fsyncSync
+
+- call sites:
+  - src/extension.ts:appendRecord
+  - src/extension.ts:rewriteStore
 
 ### fs.mkdirSync
 
 - call sites:
   - src/extension.ts:appendRecord
+  - src/extension.ts:rewriteStore
+
+### fs.openSync
+
+- call sites:
+  - src/extension.ts:appendRecord
+  - src/extension.ts:rewriteStore
 
 ### fs.readFileSync
 
 - call sites:
   - src/extension.ts:readStoreRecords
 
-### goals.get
+### fs.renameSync
 
 - call sites:
-  - src/extension.ts:deriveTree
+  - src/extension.ts:rewriteStore
 
-### goals.set
+### fs.writeSync
 
 - call sites:
-  - src/extension.ts:deriveTree
+  - src/extension.ts:appendRecord
+  - src/extension.ts:rewriteStore
 
 ### goals.values
 
 - call sites:
   - src/extension.ts:deriveTree
+
+### inTree.add
+
+- call sites:
+  - src/extension.ts:compactedRecords
+
+### inTree.has
+
+- call sites:
+  - src/extension.ts:compactedRecords
 
 ### kidIds.filter
 
@@ -214,6 +257,11 @@
 
 - call sites:
   - src/extension.ts:readStoreRecords
+
+### latest.set
+
+- call sites:
+  - src/extension.ts:deriveTree
 
 ### list.push
 
@@ -230,6 +278,11 @@
 - call sites:
   - src/extension.ts:applyOperation
 
+### out.push
+
+- call sites:
+  - src/extension.ts:compactedRecords
+
 ### parts.join
 
 - call sites:
@@ -244,6 +297,7 @@
 
 - call sites:
   - src/extension.ts:appendRecord
+  - src/extension.ts:rewriteStore
 
 ### path.join
 
@@ -275,6 +329,21 @@
 - call sites:
   - src/extension.ts:goalStacker
 
+### records.map
+
+- call sites:
+  - src/extension.ts:rewriteStore
+
+### stack.pop
+
+- call sites:
+  - src/extension.ts:compactedRecords
+
+### stack.push
+
+- call sites:
+  - src/extension.ts:compactedRecords
+
 ### tool.make
 
 - call sites:
@@ -289,11 +358,13 @@
 
 - call sites:
   - src/extension.ts:applyOperation
+  - src/extension.ts:compactedRecords
 
 ### tree.goals.get
 
 - call sites:
   - src/extension.ts:applyOperation
+  - src/extension.ts:compactedRecords
   - src/extension.ts:executeOperation
 
 ### tree.goals.values
