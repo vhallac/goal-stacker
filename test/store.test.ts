@@ -12,7 +12,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 import * as os from "node:os";
 import * as path from "node:path";
-import { appendRecord, compactedRecords, executeOperation, readStoreRecords, storeFileFor } from "../src/extension.js";
+import { appendRecord, compactedRecords, executeOperation, readStoreRecords, rewriteStore, storeFileFor } from "../src/extension.js";
 import { applyOperation, deriveTree, parseRecordLine, type GoalRecord } from "../src/extension.js";
 
 // Behavior under test (goal-tree-mvp.md §2.2, §4; issue #10 ext 1.a/2.a/2.b/4.a):
@@ -54,11 +54,28 @@ describe("appendRecord durability (review F4)", () => {
   });
 });
 
+null
 describe("store transitions: phase and target validation (ext 1.a)", () => {
   it("end_attempt with no active goal is invalid, no transitions", () => {
     const records = [rec({ id: "g-root", origin: "prompt", status: "done", statement: "root" })];
     const res = applyOperation(records, { op: "goal_end_attempt", disposition: "satisfied", outcome: "x" }, "s");
     expect(res).toEqual({ ok: false, error: "no active goal" });
+  });
+
+  let dir: string;
+  it("rewriteStore fsyncs the containing directory after the rename (R3.F1)", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-stacker-dirfsync-"));
+    const file = path.join(dir, "store.jsonl");
+    const spy = fsyncSpy;
+    spy.mockClear();
+
+    rewriteStore(file, root());
+
+    // Two fsyncs: one on the temp file fd (contents), one on the directory
+    // fd after the rename (the rename itself). Weak inspection at the
+    // node:fs seam, same rationale as the appendRecord test above.
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(fs.readFileSync(file, "utf8").trimEnd().split("\n")).toHaveLength(1);
   });
 
   it("select on unknown id is invalid", () => {

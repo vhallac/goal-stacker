@@ -161,7 +161,9 @@ export function compactedRecords(records: GoalRecord[]): GoalRecord[] | undefine
 /**
  * Durable rewrite-once-on-completion (R2.F1): write the compacted set to a
  * temp file, fsync it, then rename over the store — a crash leaves either the
- * old or the new file, never a torn one.
+ * old or the new file, never a torn one. After the rename the containing
+ * directory is fsynced too (R3.F1), so the rename itself is durable, not
+ * only the file contents.
  */
 export function rewriteStore(file: string, records: GoalRecord[]): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -174,6 +176,12 @@ export function rewriteStore(file: string, records: GoalRecord[]): void {
     fs.closeSync(fd);
   }
   fs.renameSync(tmp, file);
+  const dirFd = fs.openSync(path.dirname(file), "r");
+  try {
+    fs.fsyncSync(dirFd);
+  } finally {
+    fs.closeSync(dirFd);
+  }
 }
 
 let counter = 0;
