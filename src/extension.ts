@@ -311,6 +311,44 @@ export function applyOperation(records: GoalRecord[], operation: GoalOperation, 
 }
 
 /**
+ * The tree-control operations available while no goal is active (issue #11 §2
+ * step 4): the two ending operations are gone — the attempt has already ended.
+ */
+export const NO_ACTIVE_GOAL_BLOCK_OPERATIONS = [
+  "goal_select",
+  "goal_add_and_select",
+  "goal_drop",
+  "goal_contract_children",
+  "goal_stop_work",
+] as const;
+
+/**
+ * Phase-boundary block message template (issue #11 edge call): names the phase,
+ * then one line per available tree-control operation. LLM-visible wording —
+ * veto-able by the product owner; #13 aligns to whatever ships.
+ */
+export function phaseBlockMessage(): string {
+  return [
+    "blocked: no active goal — execution phase is closed until a goal is selected. Available tree-control operations:",
+    ...NO_ACTIVE_GOAL_BLOCK_OPERATIONS.map((op) => `- ${op}`),
+  ].join("\n");
+}
+
+/**
+ * Phase-boundary gate (issue #11): derive the phase from the store —
+ * never a stored flag — and with no active goal block every tool call that is
+ * not one of the seven goal_* tools. Returns the block reason, or undefined
+ * when the call may proceed (active goal: extension 1.a, no gating overhead;
+ * goal_* tool: handled by #10's validation path).
+ */
+export function phaseBlockReason(cwd: string, sessionId: string | undefined, toolName: string): string | undefined {
+  if (toolName.startsWith("goal_")) return undefined;
+  const tree = deriveTree(readStoreRecords(storeFileFor(cwd, sessionId)));
+  if (tree.activeGoal !== undefined) return undefined;
+  return phaseBlockMessage();
+}
+
+/**
  * Root-goal creation (§2.1): if the session's store has no tree, record a full
  * §3 root goal from the verbatim prompt — origin=prompt, status=active,
  * selected — and select it. A later before_agent_start in the same session
@@ -457,6 +495,15 @@ export default function goalStacker(pi: ExtensionAPI) {
       log(`root goal created: ${rec.id} — ${rec.statement.slice(0, 80)}`);
     }
     // No injection yet — state-view rendering and injection is #13, not this slice.
+  });
+
+  // Phase boundary (issue #11): with no active goal, ordinary tools are
+  // blocked with the phase message; goal_* tools pass through to #10's
+  // validation path. Rigid pi tool_call contract, called directly — no wrapper.
+  pi.on("tool_call", async (event, ctx) => {
+    const reason = phaseBlockReason(ctx.cwd, ctx.sessionManager.getSessionId(), event.toolName);
+    if (reason !== undefined) return { block: true, reason };
+    return undefined;
   });
 
   for (const tool of goalTools()) {
