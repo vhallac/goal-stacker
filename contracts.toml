@@ -1,0 +1,21 @@
+[source]
+tree = ["src"]
+
+[inputs]
+patterns = ["extension:goal_*"]
+
+[outputs]
+patterns = [
+  "node:fs:*",
+  "node:path:*",
+  "typebox:*",
+  "@earendil-works/pi-coding-agent:*",
+]
+
+[rigid]
+patterns = [
+  "node:fs:*",
+  "node:path:*",
+  "typebox:*",
+  "@earendil-works/pi-coding-agent:*",
+]
