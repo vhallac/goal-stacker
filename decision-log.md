@@ -16,3 +16,7 @@
 - affected: src/extension.ts, README.md
 - decision: `rewriteStore` fsyncs the temp file, renames over the store, then fsyncs the containing directory before resolving — making the rename itself durable, not just the file content. README durability wording updated to state this guarantee explicitly (PR !15 round-3 finding R3.F1).
 - reason: method.md atomicity check requires fsync of the file before rename AND of the directory after; a rename without a following directory fsync may not survive power loss, so the previous durability claim overstated the guarantee.
+## 2026-10-21 | PR !17 review findings F1/F2 | fix
+- affected: phaseBlockReason
+- decision: Corrupt goal store in the phase gate fails closed: deriveTree invariant errors become a blocking reason instead of propagating out of the rigid pi tool_call handler.
+- reason: pi's behavior on a throwing tool_call handler is unspecified; blocking every ordinary call keeps the system safe and testable.

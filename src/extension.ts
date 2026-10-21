@@ -343,7 +343,15 @@ export function phaseBlockMessage(): string {
  */
 export function phaseBlockReason(cwd: string, sessionId: string | undefined, toolName: string): string | undefined {
   if (toolName.startsWith("goal_")) return undefined;
-  const tree = deriveTree(readStoreRecords(storeFileFor(cwd, sessionId)));
+  // Fail-closed (PR !17 review F2): a store invariant violation must not throw
+  // out of the rigid pi tool_call handler (pi's behavior on a throwing handler
+  // is unspecified) — every ordinary call is blocked with the reason instead.
+  let tree: GoalTree;
+  try {
+    tree = deriveTree(readStoreRecords(storeFileFor(cwd, sessionId)));
+  } catch (err) {
+    return `blocked: corrupt goal store — ${(err as Error).message}. Repair the store (e.g. goal_stop_work) before proceeding.`;
+  }
   if (tree.activeGoal !== undefined) return undefined;
   return phaseBlockMessage();
 }
