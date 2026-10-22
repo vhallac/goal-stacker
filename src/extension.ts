@@ -347,11 +347,31 @@ export function renderStateView(tree: GoalTree): string {
   if (root === undefined) throw new Error("no root goal in store");
   const lines: string[] = [];
 
-  // Original root prompt, verbatim.
-  lines.push(`root: ${root.statement} (${root.status})`);
+  // Original root prompt, verbatim, with its id (#20: every rendered
+  // addressable node carries its id).
+  lines.push(`root: ${root.id} ${root.statement} (${root.status})`);
+
+  // Expanded-but-inactive intermediate parents (#20 widened scope): an expanded
+  // parent off the active chain otherwise never carries its id after expansion,
+  // leaving goal_contract_children on it a guess.
+  const active = tree.activeGoal;
+  const chainIds = new Set<string>();
+  if (active !== undefined) {
+    let p: string | undefined = active.id;
+    while (p !== undefined) {
+      chainIds.add(p);
+      p = tree.goals.get(p)?.parent;
+    }
+  }
+  const expandedOffChain = [...tree.goals.values()].filter(
+    (g) => g.status === "expanded" && !chainIds.has(g.id),
+  );
+  if (expandedOffChain.length > 0) {
+    lines.push("expanded:");
+    for (const g of expandedOffChain) lines.push(`- ${g.id}: ${g.statement}`);
+  }
 
   // Active goal and its ancestors, root first.
-  const active = tree.activeGoal;
   if (active !== undefined) {
     const chain: GoalRecord[] = [active];
     let p = active.parent;
