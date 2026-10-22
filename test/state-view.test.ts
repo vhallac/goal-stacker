@@ -128,6 +128,8 @@ describe("renderStateView — no-active-goal phase", () => {
     // The ending operations are gone — the attempt already ended.
     expect(view).not.toContain("goal_end_attempt");
     expect(view).not.toContain("goal_expand");
+    // The named escape (#13, made real by the renewed-root rule) is present.
+    expect(view).toContain("starts a new run automatically");
   });
 });
 
