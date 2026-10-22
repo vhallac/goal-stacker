@@ -55,7 +55,7 @@ describe("renderStateView — execution phase (active goal)", () => {
     const view = renderStateView(deriveTree(records));
 
     const lines = view.split("\n");
-    expect(lines[0]).toBe("root: Ship the goal tree MVP (done)"); // statement + status
+    expect(lines[0]).toBe("root: g-root Ship the goal tree MVP (done)"); // id + statement + status (#20)
     expect(view).toContain(`active: ${PARENT.id} (active) — ${PARENT.statement}`);
     expect(view).toContain("- g-child-b: statement for g-child-b"); // pending
     expect(view).toContain("- g-child-a [done]: parsing isolated"); // outcome line
@@ -75,6 +75,32 @@ describe("renderStateView — execution phase (active goal)", () => {
   });
 });
 
+describe("renderStateView — expanded intermediate parents carry ids (#20)", () => {
+  it("an expanded parent off the active chain renders under `expanded:` with its id", () => {
+    const records = [
+      ROOT,
+      rec({ id: "g-branch", parent: "g-root", status: "expanded" }),
+      rec({ id: "g-branch-kid", parent: "g-branch", status: "pending" }),
+      PARENT,
+      rec({ id: "g-leaf", parent: "g-parent", status: "pending" }),
+    ];
+    const lines = renderStateView(deriveTree(records)).split("\n");
+    expect(lines).toContain("expanded:");
+    expect(lines).toContain("- g-branch: statement for g-branch");
+  });
+
+  it("expanded ancestors on the active chain are not duplicated in the expanded section", () => {
+    const records = [
+      ROOT,
+      rec({ id: "g-mid", parent: "g-root", status: "expanded" }),
+      rec({ id: "g-leaf", parent: "g-mid", status: "active" }),
+    ];
+    const lines = renderStateView(deriveTree(records)).split("\n");
+    expect(lines.filter((l) => l.startsWith("expanded:"))).toEqual([]);
+    expect(lines).toContain(`active: g-mid (expanded) — statement for g-mid`);
+  });
+});
+
 describe("renderStateView — run-complete state (R2.F2)", () => {
   it("done root with no active goal: root line shows (done) and the root's own terminal outcome appears", () => {
     const records = [
@@ -82,7 +108,7 @@ describe("renderStateView — run-complete state (R2.F2)", () => {
       rec({ id: "g-child", parent: "g-root", status: "done", outcome: "parsing isolated" }),
     ];
     const lines = renderStateView(deriveTree(records)).split("\n");
-    expect(lines[0]).toBe("root: Ship the goal tree MVP (done)");
+    expect(lines[0]).toBe("root: g-root Ship the goal tree MVP (done)");
     expect(lines).toContain("- g-root [done]: MVP shipped");
     expect(lines).toContain("- g-child [done]: parsing isolated");
   });

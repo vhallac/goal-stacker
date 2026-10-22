@@ -36,13 +36,16 @@ function storeBytes(): string {
 }
 
 describe("two-invocation acceptance", () => {
-  it("invocation 1 injects nothing; invocation 2 injects root verbatim, phase, and pending set; store byte-identical", () => {
+  it("invocation 1 injects nothing; invocation 2 injects root verbatim, expanded parent ids, and pending set; store byte-identical", () => {
     // Invocation 1: handler calls ensureRoot — root created, nothing injected.
     const rec = ensureRoot(readStoreRecords(file), PROMPT, "sess-1", file);
     expect(rec).toBeDefined();
     const bytesAfterFirst = storeBytes();
 
-    // Tree grows during the run: expand the active root into children, one done.
+    // Tree grows during the run: expand the root into children, select one,
+    // then expand that child — leaving it expanded but off the active chain
+    // (no active goal). #20 round-2 acceptance: the intermediate parent's id
+    // must be addressable in the injected view.
     const expand = executeOperation(dir, "sess-1", {
       op: "goal_expand",
       children: [
@@ -52,18 +55,23 @@ describe("two-invocation acceptance", () => {
     });
     expect(expand.content[0].text).not.toMatch(/^error: /);
     // After expand the attempt ended — pick a pending child to reactivate.
-    const tree = deriveTree(readStoreRecords(file));
-    const pending = [...tree.goals.values()].filter((g) => g.status === "pending");
+    let tree = deriveTree(readStoreRecords(file));
+    let pending = [...tree.goals.values()].filter((g) => g.status === "pending");
     expect(pending.length).toBe(2);
     const sel = executeOperation(dir, "sess-1", { op: "goal_select", id: pending[0].id });
     expect(sel.content[0].text).not.toMatch(/^error: /);
-    const done = executeOperation(dir, "sess-1", {
-      op: "goal_end_attempt",
-      id: pending[0].id,
-      verdict: "satisfied",
-      outcome: "hot loop identified",
+    // Expand the selected child into a grandchild, then leave it there:
+    // the child is now expanded, the attempt ended, and no goal is active.
+    const expandChild = executeOperation(dir, "sess-1", {
+      op: "goal_expand",
+      children: [{ statement: "write the profiling harness", done_when: "harness runs" }],
     });
-    expect(done.content[0].text).not.toMatch(/^error: /);
+    expect(expandChild.content[0].text).not.toMatch(/^error: /);
+    tree = deriveTree(readStoreRecords(file));
+    const expandedParent = [...tree.goals.values()].find(
+      (g) => g.status === "expanded" && g.id !== tree.rootId,
+    );
+    expect(expandedParent).toBeDefined();
     const bytesBeforeSecond = storeBytes();
 
     // Invocation 2: handler calls stateViewInjection — injects the state view.
@@ -71,15 +79,18 @@ describe("two-invocation acceptance", () => {
     expect(result).toBeDefined();
     const view = result!.message.content;
 
-    // Anchors: root statement + status; execution phase; pending set from store.
+    // Anchors: root statement + status; pending set from store.
     const rootStatus = tree.goals.get(tree.rootId!)!.status;
-    expect(view.split("\n")[0]).toBe(`root: ${PROMPT} (${rootStatus})`);
-    expect(view).toMatch(/phase: execution/);
+    expect(view.split("\n")[0]).toBe(`root: ${tree.rootId} ${PROMPT} (${rootStatus})`);
     const remaining = [...deriveTree(readStoreRecords(file)).goals.values()]
       .filter((g) => g.status === "pending");
     for (const g of remaining) expect(view).toContain(`- ${g.id}: ${g.statement}`);
     expect(remaining.length).toBeGreaterThan(0);
-    expect(view).toContain(`active: `);
+    // Expanded-but-inactive intermediate parent carries its id (#20 round 2).
+    expect(view).toContain(`- ${expandedParent!.id}: ${expandedParent!.statement}`);
+    // Expanded root is deduped: its id appears only on the root line.
+    expect(view.split(`root: ${tree.rootId} `).length - 1).toBe(1);
+    expect(view).not.toContain(`- ${tree.rootId}: `);
 
     // Store byte-identical across injection.
     expect(storeBytes()).toBe(bytesBeforeSecond);

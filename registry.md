@@ -217,6 +217,16 @@
 - call sites:
   - src/extension.ts:renderStateView
 
+### chainIds.add
+
+- call sites:
+  - src/extension.ts:renderStateView
+
+### chainIds.has
+
+- call sites:
+  - src/extension.ts:renderStateView
+
 ### children.get
 
 - call sites:
