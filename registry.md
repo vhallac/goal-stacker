@@ -135,6 +135,13 @@
   - src/extension.ts:goalStacker
   - src/extension.ts:phaseBlockReason
 
+### extension:terminalRun
+
+- direction: internal
+- authority: lax
+- call sites:
+  - src/extension.ts:ensureRoot
+
 ### extension:toolResult
 
 - direction: internal
@@ -437,12 +444,14 @@
   - src/extension.ts:compactedRecords
   - src/extension.ts:executeOperation
   - src/extension.ts:renderStateView
+  - src/extension.ts:terminalRun
 
 ### tree.goals.values
 
 - call sites:
   - src/extension.ts:executeOperation
   - src/extension.ts:renderStateView
+  - src/extension.ts:terminalRun
 
 ### unfinished.join
 

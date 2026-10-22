@@ -76,6 +76,8 @@ describe("phase boundary between execution and tree control", () => {
     // The two ending operations are NOT offered — the attempt has ended.
     expect(reason).not.toContain("goal_end_attempt");
     expect(reason).not.toContain("goal_expand");
+    // The named escape (#13, made real by the renewed-root rule) is present.
+    expect(reason).toContain("starts a new run automatically");
 
     // Blocked call left the store byte-identical.
     expect(storeBytes()).toBe(bytes);

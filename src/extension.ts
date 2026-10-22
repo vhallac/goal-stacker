@@ -331,6 +331,7 @@ export function phaseBlockMessage(): string {
   return [
     "blocked: no active goal — execution phase is closed until a goal is selected. Available tree-control operations:",
     ...NO_ACTIVE_GOAL_BLOCK_OPERATIONS.map((op) => `- ${op}`),
+    "If the previous run is complete (root done or failed), the next ordinary prompt starts a new run automatically.",
   ].join("\n");
 }
 
@@ -406,6 +407,7 @@ export function renderStateView(tree: GoalTree): string {
   } else {
     lines.push(`phase: no active goal — execution is closed until a goal is selected. Available tree-control operations:`);
     for (const op of NO_ACTIVE_GOAL_BLOCK_OPERATIONS) lines.push(`- ${op}`);
+    lines.push("If the previous run is complete (root done or failed), the next ordinary prompt starts a new run automatically.");
   }
   return lines.join("\n");
 }
@@ -446,14 +448,42 @@ export function phaseBlockReason(cwd: string, sessionId: string | undefined, too
 }
 
 /**
+ * Issue #21 renewed-root rule: a run is terminal when the root goal has
+ * reached done or failed and no goal is active. Covers the compacted
+ * single-record shape (done root after R2.F1) and a failed root with its
+ * ended children. While any goal is active the run is live and root creation
+ * must not fire.
+ */
+function terminalRun(tree: GoalTree): boolean {
+  if (tree.rootId === undefined) return false;
+  const root = tree.goals.get(tree.rootId);
+  if (root === undefined) return false;
+  if (root.status !== "done" && root.status !== "failed") return false;
+  if (tree.activeGoal !== undefined) return false;
+  // Terminal-only tree: no other goal may still be in a live (non-terminal)
+  // state — a pending/blocked/expanded child means the run has not ended.
+  for (const goal of tree.goals.values()) {
+    if (goal.id === tree.rootId) continue;
+    if (goal.status !== "done" && goal.status !== "failed" && goal.status !== "dropped") return false;
+  }
+  return true;
+}
+
+/**
  * Root-goal creation (§2.1): if the session's store has no tree, record a full
  * §3 root goal from the verbatim prompt — origin=prompt, status=active,
  * selected — and select it. A later before_agent_start in the same session
- * appends no duplicate root.
+ * appends no duplicate root. After a terminal root (issue #21), the next
+ * prompt starts a fresh root while the terminal record is retained.
  */
 export function ensureRoot(records: GoalRecord[], prompt: string, sessionId: string | undefined, file: string): GoalRecord | undefined {
   const tree = deriveTree(records);
-  if (tree.rootId !== undefined) return undefined; // tree exists -> no duplicate root
+  if (tree.rootId === undefined || terminalRun(tree)) {
+    // No tree, or the previous run ended (issue #21): start a fresh root. The
+    // previous run's terminal completion record stays in the store (append-only).
+  } else {
+    return undefined; // tree exists with a live run -> no duplicate root
+  }
   const rec: GoalRecord = {
     kind: "goal",
     ts: new Date().toISOString(),

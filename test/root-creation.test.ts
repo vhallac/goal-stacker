@@ -121,4 +121,82 @@ describe("root-goal creation", () => {
     expect(res.content[0].text).toContain("unknown goal id");
     expect(fs.readFileSync(fileB, "utf8")).toBe(before); // byte-identical (1.a.1)
   });
+
+  // Issue #21 renewed-root: after the root reaches a terminal status, the
+  // next prompt starts a fresh root while the terminal record is retained.
+  describe("renewed root after a terminal run (issue #21)", () => {
+    const terminalDoneRecord = (id: string, statement: string): GoalRecord => ({
+      kind: "goal",
+      ts: new Date().toISOString(),
+      sessionId: "sess-1",
+      id,
+      statement,
+      origin: "prompt",
+      status: "done",
+      outcome: "all children satisfied",
+    });
+
+    it("done root, compacted single-record shape: next prompt starts a fresh root, terminal record retained", () => {
+      fs.writeFileSync(file, JSON.stringify(terminalDoneRecord("g-root-1", "first prompt")) + "\n");
+      const rec = ensureRoot(readStoreRecords(file), "second prompt", "sess-1", file);
+
+      expect(rec).toBeDefined();
+      expect(rec!.statement).toBe("second prompt"); // verbatim
+      expect(rec!.origin).toBe("prompt");
+      expect(rec!.status).toBe("active");
+      expect(rec!.selected).toBe(true);
+
+      const records = readStoreRecords(file);
+      // Append-only: the terminal completion record stays observable.
+      expect(records.map((r) => r.id)).toContain("g-root-1");
+      expect(records.filter((r) => r.id === "g-root-1")[0].status).toBe("done");
+      const tree = deriveTree(records);
+      expect(tree.rootId).toBe(rec!.id); // fresh root is the tree root
+      expect(tree.activeGoal?.id).toBe(rec!.id);
+    });
+
+    it("failed root with ended children: next prompt starts a fresh root, records retained", () => {
+      const failedRoot: GoalRecord = { ...terminalDoneRecord("g-root-f", "failing prompt"), status: "failed", outcome: "children not satisfied" };
+      const doneChild: GoalRecord = {
+        kind: "goal",
+        ts: new Date().toISOString(),
+        sessionId: "sess-1",
+        id: "g-child-1",
+        parent: "g-root-f",
+        statement: "a finished child",
+        origin: "expansion",
+        status: "done",
+      };
+      fs.writeFileSync(file, JSON.stringify(failedRoot) + "\n" + JSON.stringify(doneChild) + "\n");
+      const rec = ensureRoot(readStoreRecords(file), "retry prompt", "sess-1", file);
+
+      expect(rec).toBeDefined();
+      expect(rec!.status).toBe("active");
+      const records = readStoreRecords(file);
+      expect(records.map((r) => r.id)).toContain("g-root-f");
+      expect(records.filter((r) => r.id === "g-root-f")[0].status).toBe("failed");
+      const tree = deriveTree(records);
+      expect(tree.rootId).toBe(rec!.id);
+      expect(tree.activeGoal?.id).toBe(rec!.id);
+    });
+
+    it("terminal root with a live (pending) goal is not renewed: nothing appended", () => {
+      const doneRoot = terminalDoneRecord("g-root-2", "done prompt");
+      const pendingChild: GoalRecord = {
+        kind: "goal",
+        ts: new Date().toISOString(),
+        sessionId: "sess-1",
+        id: "g-child-2",
+        parent: "g-root-2",
+        statement: "still pending",
+        origin: "expansion",
+        status: "pending",
+      };
+      fs.writeFileSync(file, JSON.stringify(doneRoot) + "\n" + JSON.stringify(pendingChild) + "\n");
+      const before = fs.readFileSync(file, "utf8");
+      const rec = ensureRoot(readStoreRecords(file), "next prompt", "sess-1", file);
+      expect(rec).toBeUndefined();
+      expect(fs.readFileSync(file, "utf8")).toBe(before);
+    });
+  });
 });
