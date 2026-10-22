@@ -36,7 +36,7 @@ function storeBytes(): string {
 }
 
 describe("two-invocation acceptance", () => {
-  it("invocation 1 injects nothing; invocation 2 injects root verbatim, phase, and pending set; store byte-identical", () => {
+  it("invocation 1 injects nothing; invocation 2 injects root verbatim, expanded parent ids, and pending set; store byte-identical", () => {
     // Invocation 1: handler calls ensureRoot — root created, nothing injected.
     const rec = ensureRoot(readStoreRecords(file), PROMPT, "sess-1", file);
     expect(rec).toBeDefined();
