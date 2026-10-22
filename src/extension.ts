@@ -364,7 +364,7 @@ export function renderStateView(tree: GoalTree): string {
     }
   }
   const expandedOffChain = [...tree.goals.values()].filter(
-    (g) => g.status === "expanded" && !chainIds.has(g.id),
+    (g) => g.status === "expanded" && !chainIds.has(g.id) && g.id !== tree.rootId,
   );
   if (expandedOffChain.length > 0) {
     lines.push("expanded:");
