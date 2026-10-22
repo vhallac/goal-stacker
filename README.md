@@ -34,7 +34,7 @@ containing directory fsynced after the atomic rename, so the tree survives
 crashes and power loss (record-level durability, including rename
 durability). Slice 2 (tool policy and
 completion evidence) is not implemented; the per-invocation state-view
-injection is a follow-up. Run `npm run verify` for the commit gate
+injection is implemented (rendered from the store on each invocation). Run `npm run verify` for the commit gate
 (typecheck + full test suite).
 
 ---
