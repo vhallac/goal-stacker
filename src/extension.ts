@@ -335,6 +335,75 @@ export function phaseBlockMessage(): string {
 }
 
 /**
+ * §6 state view (issue #13): a compact, derived-only rendering of the durable
+ * tree for injection on every post-first invocation. Nothing here writes — the
+ * store is never touched by rendering (R3.F3: rendering failure degrades to no
+ * injection + log, never a write).
+ */
+export const STATE_VIEW_TYPE = "goal-stacker-state-view";
+
+export function renderStateView(tree: GoalTree): string {
+  const root = tree.rootId !== undefined ? tree.goals.get(tree.rootId) : undefined;
+  if (root === undefined) throw new Error("no root goal in store");
+  const lines: string[] = [];
+
+  // Original root prompt, verbatim.
+  lines.push(`root: ${root.statement} (${root.status})`);
+
+  // Active goal and its ancestors, root first.
+  const active = tree.activeGoal;
+  if (active !== undefined) {
+    const chain: GoalRecord[] = [active];
+    let p = active.parent;
+    while (p !== undefined) {
+      const g = tree.goals.get(p);
+      if (g === undefined) break;
+      chain.unshift(g);
+      p = g.parent;
+    }
+    for (const g of chain) lines.push(`active: ${g.id} (${g.status}) — ${g.statement}`);
+  }
+
+  // Pending goals available for selection.
+  const pending = [...tree.goals.values()].filter((g) => g.status === "pending");
+  if (pending.length > 0) {
+    lines.push("pending:");
+    for (const g of pending) lines.push(`- ${g.id}: ${g.statement}`);
+  }
+
+  // Completed-child outcomes (one line per outcome, never truncated away).
+  const outcomes = [...tree.goals.values()].filter(
+    (g) => g.outcome !== undefined && (g.status === "done" || g.status === "failed" || g.status === "dropped"),
+  );
+  if (outcomes.length > 0) {
+    lines.push("outcomes:");
+    for (const g of outcomes) lines.push(`- ${g.id} [${g.status}]: ${g.outcome}`);
+  }
+
+  // Phase and available operations (aligned with #11's phase messages).
+  if (active !== undefined) {
+    lines.push("phase: execution — ordinary task tools and the ending operations (goal_end_attempt, goal_expand) are available.");
+  } else {
+    lines.push(`phase: no active goal — execution is closed until a goal is selected. Available tree-control operations:`);
+    for (const op of NO_ACTIVE_GOAL_BLOCK_OPERATIONS) lines.push(`- ${op}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * §6 injection (issue #13): render the current state via the #9 mechanism —
+ * `before_agent_start` returns `{ message: { customType, content, display } }`.
+ * Fail-open (R3.F3): any rendering failure degrades to no injection + log,
+ * never a write; an empty/unreadable store (no tree) injects nothing.
+ */
+export function stateViewInjection(file: string): { message: { customType: string; content: string; display: boolean } } | undefined {
+  const records = readStoreRecords(file);
+  if (records.length === 0) return undefined; // empty or unreadable store -> no tree -> no injection (1.a)
+  const content = renderStateView(deriveTree(records));
+  return { message: { customType: STATE_VIEW_TYPE, content, display: true } };
+}
+
+/**
  * Phase-boundary gate (issue #11): derive the phase from the store —
  * never a stored flag — and with no active goal block every tool call that is
  * not one of the seven goal_* tools. Returns the block reason, or undefined
@@ -501,8 +570,16 @@ export default function goalStacker(pi: ExtensionAPI) {
     const rec = ensureRoot(readStoreRecords(file), prompt, sessionId, file);
     if (rec) {
       log(`root goal created: ${rec.id} — ${rec.statement.slice(0, 80)}`);
+      return undefined; // first invocation: the prompt itself opens the session
     }
-    // No injection yet — state-view rendering and injection is #13, not this slice.
+    // §6 state view (issue #13): inject on every post-first invocation.
+    try {
+      return stateViewInjection(file);
+    } catch (e) {
+      // R3.F3: fail-open — no injection, log, never a write.
+      log(`state-view rendering failed, injecting nothing: ${(e as Error).message}`);
+      return undefined;
+    }
   });
 
   // Phase boundary (issue #11): with no active goal, ordinary tools are
