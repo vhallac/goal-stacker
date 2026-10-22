@@ -71,8 +71,9 @@ describe("two-invocation acceptance", () => {
     expect(result).toBeDefined();
     const view = result!.message.content;
 
-    // Anchors: root statement verbatim; execution phase; pending set from store.
-    expect(view.split("\n")[0]).toBe(`root: ${PROMPT}`);
+    // Anchors: root statement + status; execution phase; pending set from store.
+    const rootStatus = tree.goals.get(tree.rootId!)!.status;
+    expect(view.split("\n")[0]).toBe(`root: ${PROMPT} (${rootStatus})`);
     expect(view).toMatch(/phase: execution/);
     const remaining = [...deriveTree(readStoreRecords(file)).goals.values()]
       .filter((g) => g.status === "pending");

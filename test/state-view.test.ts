@@ -55,7 +55,7 @@ describe("renderStateView — execution phase (active goal)", () => {
     const view = renderStateView(deriveTree(records));
 
     const lines = view.split("\n");
-    expect(lines[0]).toBe("root: Ship the goal tree MVP"); // verbatim
+    expect(lines[0]).toBe("root: Ship the goal tree MVP (done)"); // statement + status
     expect(view).toContain(`active: ${PARENT.id} (active) — ${PARENT.statement}`);
     expect(view).toContain("- g-child-b: statement for g-child-b"); // pending
     expect(view).toContain("- g-child-a [done]: parsing isolated"); // outcome line
@@ -72,6 +72,19 @@ describe("renderStateView — execution phase (active goal)", () => {
       `active: ${ROOT.id} (done) — ${ROOT.statement}`,
       `active: ${PARENT.id} (active) — ${PARENT.statement}`,
     ]);
+  });
+});
+
+describe("renderStateView — run-complete state (R2.F2)", () => {
+  it("done root with no active goal: root line shows (done) and the root's own terminal outcome appears", () => {
+    const records = [
+      rec({ id: "g-root", origin: "prompt", statement: "Ship the goal tree MVP", status: "done", outcome: "MVP shipped" }),
+      rec({ id: "g-child", parent: "g-root", status: "done", outcome: "parsing isolated" }),
+    ];
+    const lines = renderStateView(deriveTree(records)).split("\n");
+    expect(lines[0]).toBe("root: Ship the goal tree MVP (done)");
+    expect(lines).toContain("- g-root [done]: MVP shipped");
+    expect(lines).toContain("- g-child [done]: parsing isolated");
   });
 });
 

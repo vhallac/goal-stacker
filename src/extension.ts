@@ -348,7 +348,7 @@ export function renderStateView(tree: GoalTree): string {
   const lines: string[] = [];
 
   // Original root prompt, verbatim.
-  lines.push(`root: ${root.statement}`);
+  lines.push(`root: ${root.statement} (${root.status})`);
 
   // Active goal and its ancestors, root first.
   const active = tree.activeGoal;
@@ -373,7 +373,7 @@ export function renderStateView(tree: GoalTree): string {
 
   // Completed-child outcomes (one line per outcome, never truncated away).
   const outcomes = [...tree.goals.values()].filter(
-    (g) => g.parent !== undefined && g.outcome !== undefined && (g.status === "done" || g.status === "failed" || g.status === "dropped"),
+    (g) => g.outcome !== undefined && (g.status === "done" || g.status === "failed" || g.status === "dropped"),
   );
   if (outcomes.length > 0) {
     lines.push("outcomes:");
